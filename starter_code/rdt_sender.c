@@ -2,7 +2,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h> 
+#include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -11,74 +11,66 @@
 #include <time.h>
 #include <assert.h>
 
-#include"packet.h"
-#include"common.h"
+#include "packet.h"
+#include "common.h"
 
 #define STDIN_FD    0
-#define RETRY  120 //millisecond
+#define RETRY  120 // milliseconds
+#define window_size 10
 
-int next_seqno=0;
-int send_base=0;
-int window_size = 10;
-int ack_count = 0; // // for duplicate acks
-
+int next_seqno = 0;
+int send_base = 0;
+// int window_size = 10; // Window size is set to 10
 int sockfd, serverlen;
 struct sockaddr_in serveraddr;
-struct itimerval timer; 
+struct itimerval timer;
 tcp_packet *sndpkt;
 tcp_packet *recvpkt;
-sigset_t sigmask;       
-
+sigset_t sigmask;
+tcp_packet *window[window_size]; // Window to hold packets
 
 void resend_packets(int sig) {
     if (sig == SIGALRM) {
-        //Resend all packets range between 
-        //sendBase and nextSeqNum
-        VLOG(INFO, "Timout happend");
-        if(sendto(sockfd, sndpkt, TCP_HDR_SIZE + get_data_size(sndpkt), 0, (const struct sockaddr *)&serveraddr, serverlen) < 0)
-        {
-            error("sendto");
+        // Resend all packets in the window
+        VLOG(INFO, "Timeout happened, resending packets in window");
+        for (int i = 0; i < window_size; i++) {
+            if (window[i] != NULL) {
+                VLOG(DEBUG, "Resending packet %d", window[i]->hdr.seqno);
+                if (sendto(sockfd, window[i], TCP_HDR_SIZE + get_data_size(window[i]), 0,
+                        (const struct sockaddr *)&serveraddr, serverlen) < 0) {
+                    error("sendto");
+                }
+            }
         }
     }
 }
-
 
 void start_timer() {
     sigprocmask(SIG_UNBLOCK, &sigmask, NULL);
     setitimer(ITIMER_REAL, &timer, NULL);
 }
 
-
 void stop_timer() {
     sigprocmask(SIG_BLOCK, &sigmask, NULL);
 }
 
-
-/*
- * init_timer: Initialize timer
- * delay: delay in milliseconds
- * sig_handler: signal handler function for re-sending unACKed packets
- */
 void init_timer(int delay, void (*sig_handler)(int)) {
     signal(SIGALRM, resend_packets);
-    timer.it_interval.tv_sec = delay / 1000;    // sets an interval of the timer
-    timer.it_interval.tv_usec = (delay % 1000) * 1000;  
-    timer.it_value.tv_sec = delay / 1000;       // sets an initial value
+    timer.it_interval.tv_sec = delay / 1000;
+    timer.it_interval.tv_usec = (delay % 1000) * 1000;
+    timer.it_value.tv_sec = delay / 1000;
     timer.it_value.tv_usec = (delay % 1000) * 1000;
 
     sigemptyset(&sigmask);
     sigaddset(&sigmask, SIGALRM);
 }
 
-
 int main (int argc, char **argv) {
     int portno, len;
-    int next_seqno;
     char *hostname;
     char buffer[DATA_SIZE];
     FILE *fp;
 
-    /* check command line arguments */
     if (argc != 4) {
         fprintf(stderr,"usage: %s <hostname> <port> <FILE>\n", argv[0]);
         exit(0);
@@ -90,86 +82,85 @@ int main (int argc, char **argv) {
         error(argv[3]);
     }
 
-    /* socket: create the socket */
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sockfd < 0) 
+    if (sockfd < 0)
         error("ERROR opening socket");
 
-    /* initialize server server details */
     bzero((char *) &serveraddr, sizeof(serveraddr));
     serverlen = sizeof(serveraddr);
 
-    /* covert host into network byte order */
     if (inet_aton(hostname, &serveraddr.sin_addr) == 0) {
         fprintf(stderr,"ERROR, invalid host %s\n", hostname);
         exit(0);
     }
 
-    /* build the server's Internet address */
     serveraddr.sin_family = AF_INET;
     serveraddr.sin_port = htons(portno);
+
     assert(MSS_SIZE - TCP_HDR_SIZE > 0);
 
-    //Stop and wait protocol
     init_timer(RETRY, resend_packets);
     next_seqno = 0;
+
     while (1) {
-        len = fread(buffer, 1, DATA_SIZE, fp);
-        if (len <= 0) {
-            VLOG(INFO, "End Of File has been reached");
-            sndpkt = make_packet(0);
-            sendto(sockfd, sndpkt, TCP_HDR_SIZE, 0, (const struct sockaddr *)&serveraddr, serverlen);
-            break;
-        }
+        while (next_seqno < send_base + window_size) {
+            len = fread(buffer, 1, DATA_SIZE, fp);
+            printf("len size: %d \n", len);
+            if (len <= 0) {
+                VLOG(INFO, "End Of File has been reached");
+                sndpkt = make_packet(0);
+                if (sendto(sockfd, sndpkt, TCP_HDR_SIZE, 0, (const struct sockaddr *)&serveraddr, serverlen) < 0) {
+                    error("sendto");
+                }
+                break;
+            }
 
-        send_base = next_seqno;
-        next_seqno = send_base + len;
-        sndpkt = make_packet(len);
-        memcpy(sndpkt->data, buffer, len);
-        sndpkt->hdr.seqno = send_base;
+            printf("making pkt\n");
+            sndpkt = make_packet(len);
+            memcpy(sndpkt->data, buffer, len);
+            sndpkt->hdr.seqno = next_seqno;
+            printf("index: %d \n",next_seqno % window_size);
+            window[next_seqno % window_size] = sndpkt;
 
-        //Wait for ACK --> fork/thread ???
-        do {
-            VLOG(DEBUG, "Sending packet %d to %s", send_base, inet_ntoa(serveraddr.sin_addr));
-            /*
-             * If the sendto is called for the first time, the system will
-             * will assign a random port number so that server can send its
-             * response to the src port.
-             */
-            if(sendto(sockfd, sndpkt, TCP_HDR_SIZE + get_data_size(sndpkt), 0, (const struct sockaddr *)&serveraddr, serverlen) < 0) {
+            VLOG(DEBUG, "Sending packet %d to %s", next_seqno, inet_ntoa(serveraddr.sin_addr));
+            if (sendto(sockfd, sndpkt, TCP_HDR_SIZE + get_data_size(sndpkt), 0,
+                    (const struct sockaddr *)&serveraddr, serverlen) < 0) {
                 error("sendto");
             }
 
-            start_timer();
-            //ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags, struct sockaddr *src_addr, socklen_t *addrlen);
+            if (next_seqno == send_base) {
+                start_timer();
+            }
+            next_seqno += len;
+        }
 
-            do {
-                if(recvfrom(sockfd, buffer, MSS_SIZE, 0, (struct sockaddr *) &serveraddr, (socklen_t *)&serverlen) < 0) {
-                    error("recvfrom");
-                }
+        if (recvfrom(sockfd, buffer, MSS_SIZE, 0, (struct sockaddr *) &serveraddr, (socklen_t *)&serverlen) < 0) {
+            error("recvfrom");
+        }
 
-                recvpkt = (tcp_packet *)buffer;
-                printf("%d \n", get_data_size(recvpkt)); // // ACK packets have seqno and size of 0
-                assert(get_data_size(recvpkt) <= DATA_SIZE);
+        recvpkt = (tcp_packet *)buffer;
+        assert(get_data_size(recvpkt) <= DATA_SIZE);
 
-                printf("Received ACK no. %d\n", recvpkt->hdr.ackno); // // pain
-                ack_count++; // // increment number of dupes
-                if (ack_count >= 3) { // // retransmit after 3 dupes
-                    printf("dupe clause\n"); // // temp
-                    ack_count = 0;
-                    break;
-                }
-            } while(recvpkt->hdr.ackno < next_seqno);    // // ignore duplicate ACKs --> check for triple
-            ack_count = 0; // // reset if dupe not triggered
-            stop_timer();
-            /* resend pack if don't recv ACK */
-        } while(recvpkt->hdr.ackno != next_seqno && window_size <= 10);      
-
-        free(sndpkt);
+        // if (recvpkt->hdr.ackno == 0) { // //
+        //     printf("new\n");
+        //     break;
+        // }
+        if (recvpkt->hdr.ackno > send_base) {
+            VLOG(DEBUG, "Received ACK for packet %d", recvpkt->hdr.ackno);
+            send_base = recvpkt->hdr.ackno;
+            if (send_base == next_seqno) {
+                stop_timer();
+            } else {
+                start_timer();
+            }
+        }
+        if (len <= 0) {
+            break;
+        }
     }
 
     return 0;
 }
 
-
-
+// // send a bunch of 0 packets to end communication (brute force)
+// // timeout on sender side in case final ACK is lost
