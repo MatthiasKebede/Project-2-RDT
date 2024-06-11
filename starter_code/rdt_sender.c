@@ -18,6 +18,7 @@
 #define RETRY  120 // milliseconds
 #define window_size 10
 
+// global vars for seq numbers and window mangement
 int next_seqno = 0;
 int send_base = 0;
 // int window_size = 10; // Window size is set to 10
@@ -29,6 +30,7 @@ tcp_packet *recvpkt;
 sigset_t sigmask;
 tcp_packet *window[window_size]; // Window to hold packets
 
+// resend packets during timeout
 void resend_packets(int sig) {
     if (sig == SIGALRM) {
         // Resend all packets in the window
@@ -54,6 +56,7 @@ void stop_timer() {
     sigprocmask(SIG_BLOCK, &sigmask, NULL);
 }
 
+// initializes timer
 void init_timer(int delay, void (*sig_handler)(int)) {
     signal(SIGALRM, resend_packets);
     timer.it_interval.tv_sec = delay / 1000;
@@ -71,6 +74,7 @@ int main (int argc, char **argv) {
     char buffer[DATA_SIZE];
     FILE *fp;
 
+    // user input validation
     if (argc != 4) {
         fprintf(stderr,"usage: %s <hostname> <port> <FILE>\n", argv[0]);
         exit(0);
@@ -82,6 +86,7 @@ int main (int argc, char **argv) {
         error(argv[3]);
     }
 
+    // create UDP socket
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0)
         error("ERROR opening socket");
@@ -89,6 +94,7 @@ int main (int argc, char **argv) {
     bzero((char *) &serveraddr, sizeof(serveraddr));
     serverlen = sizeof(serveraddr);
 
+    // convert hostname to network address 
     if (inet_aton(hostname, &serveraddr.sin_addr) == 0) {
         fprintf(stderr,"ERROR, invalid host %s\n", hostname);
         exit(0);
@@ -103,6 +109,7 @@ int main (int argc, char **argv) {
     next_seqno = 0;
 
     while (1) {
+        // send packets while within the window size
         while (next_seqno < send_base + window_size) {
             len = fread(buffer, 1, DATA_SIZE, fp);
             // printf("len size: %d \n", len);
@@ -134,6 +141,7 @@ int main (int argc, char **argv) {
             next_seqno += len;
         }
 
+        // recieve ACK from server
         if (recvfrom(sockfd, buffer, MSS_SIZE, 0, (struct sockaddr *) &serveraddr, (socklen_t *)&serverlen) < 0) {
             error("recvfrom");
         }
@@ -144,6 +152,8 @@ int main (int argc, char **argv) {
         // if (recvpkt->hdr.ackno == 0) { // // alternate
         //     break;
         // }
+        
+        // handle recieved acknowledgment
         if (recvpkt->hdr.ackno > send_base) {
             VLOG(DEBUG, "Received ACK for packet %d", recvpkt->hdr.ackno);
             send_base = recvpkt->hdr.ackno;
