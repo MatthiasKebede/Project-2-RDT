@@ -12,6 +12,7 @@
 #include "common.h"
 #include "packet.h"
 
+//pointers to send and receive packets 
 tcp_packet *recvpkt;
 tcp_packet *sndpkt;
 
@@ -27,17 +28,20 @@ int main(int argc, char **argv) {
     struct timeval tp;
     int expected_seqno = 0;
 
+    // user input check 
     if (argc != 3) {
         fprintf(stderr, "usage: %s <port> FILE_RECVD\n", argv[0]);
         exit(1);
     }
     portno = atoi(argv[1]);
 
+    // open file for wiriting 
     fp  = fopen(argv[2], "w");
     if (fp == NULL) {
         error(argv[2]);
     }
 
+    // create a UDP socket
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0)
         error("ERROR opening socket");
@@ -50,6 +54,7 @@ int main(int argc, char **argv) {
     serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
     serveraddr.sin_port = htons((unsigned short)portno);
 
+    // bind the socket to the server address 
     if (bind(sockfd, (struct sockaddr *) &serveraddr, sizeof(serveraddr)) < 0)
         error("ERROR on binding");
 
@@ -57,6 +62,7 @@ int main(int argc, char **argv) {
 
     clientlen = sizeof(clientaddr);
     while (1) {
+        // recieve data from the client 
         if (recvfrom(sockfd, buffer, MSS_SIZE, 0, (struct sockaddr *) &clientaddr, (socklen_t *)&clientlen) < 0) {
             error("ERROR in recvfrom");
         }
@@ -64,6 +70,7 @@ int main(int argc, char **argv) {
         printf("size = %d from packet %d\n", recvpkt->hdr.data_size, recvpkt->hdr.seqno);
         assert(get_data_size(recvpkt) <= DATA_SIZE);
 
+        // checking for EOF
         if (recvpkt->hdr.data_size == 0) {
             VLOG(INFO, "End Of File has been reached, closing file.");
             VLOG(INFO, "Sending final ACKs and closing connection.");
@@ -77,9 +84,10 @@ int main(int argc, char **argv) {
             break;
         }
 
-        gettimeofday(&tp, NULL);
+        gettimeofday(&tp, NULL); // get current time
         VLOG(DEBUG, "%lu, %d, %d", tp.tv_sec, recvpkt->hdr.data_size, recvpkt->hdr.seqno);
 
+        // check if the received packet is in order
         if (recvpkt->hdr.seqno == expected_seqno) {
             VLOG(INFO, "Writing packet %d to file.", recvpkt->hdr.seqno);
             fseek(fp, recvpkt->hdr.seqno, SEEK_SET);
@@ -89,6 +97,7 @@ int main(int argc, char **argv) {
             VLOG(INFO, "Out-of-order packet received, expected %d but got %d", expected_seqno, recvpkt->hdr.seqno);
         }
 
+        // send ACK for recieved packet
         sndpkt = make_packet(0);
         sndpkt->hdr.ackno = expected_seqno;
         sndpkt->hdr.ctr_flags = ACK;
