@@ -141,7 +141,7 @@ int main (int argc, char **argv) {
         recvpkt = (tcp_packet *)buffer;
         assert(get_data_size(recvpkt) <= DATA_SIZE);
 
-        // if (recvpkt->hdr.ackno == 0) { // //
+        // if (recvpkt->hdr.ackno == 0) { // // alternate
         //     printf("new\n");
         //     break;
         // }
@@ -161,6 +161,3 @@ int main (int argc, char **argv) {
 
     return 0;
 }
-
-// // send a bunch of 0 packets to end communication (brute force)
-// // timeout on sender side in case final ACK is lost

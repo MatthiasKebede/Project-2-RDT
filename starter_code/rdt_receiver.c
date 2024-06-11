@@ -100,5 +100,3 @@ int main(int argc, char **argv) {
 
     return 0;
 }
-
-// // send a bunch of 0 ACK packets just in case before closing receiver side
