@@ -105,7 +105,7 @@ int main (int argc, char **argv) {
     while (1) {
         while (next_seqno < send_base + window_size) {
             len = fread(buffer, 1, DATA_SIZE, fp);
-            printf("len size: %d \n", len);
+            // printf("len size: %d \n", len);
             if (len <= 0) {
                 VLOG(INFO, "End Of File has been reached");
                 sndpkt = make_packet(0);
@@ -115,11 +115,11 @@ int main (int argc, char **argv) {
                 break;
             }
 
-            printf("making pkt\n");
+            // printf("making pkt\n");
             sndpkt = make_packet(len);
             memcpy(sndpkt->data, buffer, len);
             sndpkt->hdr.seqno = next_seqno;
-            printf("index: %d \n",next_seqno % window_size);
+            // printf("index: %d \n",next_seqno % window_size);
             window[next_seqno % window_size] = sndpkt;
 
             VLOG(DEBUG, "Sending packet %d to %s", next_seqno, inet_ntoa(serveraddr.sin_addr));
@@ -142,7 +142,6 @@ int main (int argc, char **argv) {
         assert(get_data_size(recvpkt) <= DATA_SIZE);
 
         // if (recvpkt->hdr.ackno == 0) { // // alternate
-        //     printf("new\n");
         //     break;
         // }
         if (recvpkt->hdr.ackno > send_base) {

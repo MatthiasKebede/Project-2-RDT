@@ -66,11 +66,11 @@ int main(int argc, char **argv) {
 
         if (recvpkt->hdr.data_size == 0) {
             VLOG(INFO, "End Of File has been reached, closing file.");
+            VLOG(INFO, "Sending final ACKs and closing connection.");
             for (int i=0; i<100; i++) {
                 sndpkt = make_packet(0);
                 sndpkt->hdr.ackno = 0;
                 sndpkt->hdr.ctr_flags = ACK;
-                VLOG(INFO, "Sending ACK for packet %d", expected_seqno);
                 sendto(sockfd, sndpkt, TCP_HDR_SIZE, 0, (struct sockaddr *) &clientaddr, clientlen);
             }
             fclose(fp);
