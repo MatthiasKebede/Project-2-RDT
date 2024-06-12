@@ -18,7 +18,6 @@ Before executing the Sender code, run the following command for Mahi-Mahi:
 mm-delay 5 mm-loss uplink 0.2 mm-loss downlink 0.5
 ```
 This command introduces a 5ms delay to each packet, 20% loss to the uplink capacity, and 50% loss for the downlink.
-Note: Currently, file reception might be incorrect due to packet loss. To receive files correctly in the starter code of rdt_sender/rdt_receiver, utilize only delay without loss: `mm-delay 5`.
 
 Step 4:
 Run the Sender:
