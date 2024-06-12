@@ -5,6 +5,7 @@ Ensure that two terminals are opened and that the current working directory (cwd
 
 Step 1:
 Navigate to the starter code directory in one of the terminals using either terminal 1 or 2, compile using 'make', then navigate to the ../obj directory. In the other terminal, navigate directly to the obj directory.
+Note: If you are having issues on the make (compilation) please try make clean then make.
 
 Step 2:
 Run the Receiver:
