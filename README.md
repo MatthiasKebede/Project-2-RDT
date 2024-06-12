@@ -1,4 +1,4 @@
-README:
+Instructions:
 
 Step 0:
 Ensure that two terminals are opened and that the current working directory (cwd) is .../Project-2-RDT-main.
